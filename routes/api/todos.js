@@ -1,16 +1,18 @@
 const express = require('express');
 const router = express.Router();
+const auth = require('../../middleware/auth');
 const { check, validationResult } = require('express-validator');
 
-const Todo = require('../../models/Todos');
+const Todo = require('../../models/Todo');
 
 // @route   POST api/todos
 // @desc    Create a todo
-// @access  Public
+// @access  Private
 router.post('/', [
+	auth,
 	[
-		check('text', 'Text is required').not().isEmpty(),
 		check('title', 'Title is required').not().isEmpty(),
+		check('description', 'Description is required').not().isEmpty(),
 	]
 ], async (req, res) => {
 	const errors = validationResult(req);
@@ -20,10 +22,10 @@ router.post('/', [
 	}
 
 	try {
-
 		const newTodo = new Todo({
-			text: req.body.text,
 			title: req.body.title,
+			description: req.body.description,
+			user: req.user.id,
 		});
 
 		const todo = await newTodo.save();
@@ -39,11 +41,11 @@ router.post('/', [
 });
 
 // @route   GET api/todos
-// @desc    Get all todos
+// @desc    Get all logged in user todos
 // @access  Private
-router.get('/', async (req, res) => {
+router.get('/', auth, async (req, res) => {
 	try {
-		const todos = await Todo.find().sort({ date: -1 });
+		const todos = await Todo.find({ user: req.user.id }, { title: 1, status: 1, important: 1 }).sort({ date: -1 }).populate('users')
 		res.json(todos);
 	} catch (err) {
 		console.error(err.message);
@@ -51,13 +53,12 @@ router.get('/', async (req, res) => {
 	}
 });
 
-// @route   GET api/todo/:id
+// @route   GET api/todos/:id
 // @desc    Get todo by id
 // @access  Private
-router.get('/:id', async (req, res) => {
+router.get('/:id', auth, async (req, res) => {
 	try {
-        console.log(req.params.id)
-		const todo = await Todo.findById(req.params.id);
+		const todo = await Todo.findOne({ _id: req.params.id, user: req.user.id });
 
 		if (!todo) {
 			return res.status(400).json({ msg: 'Todo not found' });
@@ -66,21 +67,16 @@ router.get('/:id', async (req, res) => {
 		res.json(todo);
 	} catch (err) {
 		console.error(err.message);
-
-		if (err.kind === 'ObjectId') {
-			return res.status(400).json({ msg: 'Todo not found' });
-		}
-
 		res.status(500).send('Server Error');
 	}
 });
 
-// @route   DELETE api/todo/:id
+// @route   DELETE api/todos/:id
 // @desc    Delete a todo
 // @access  Private
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', auth, async (req, res) => {
 	try {
-		const todo = await Todo.findById(req.params.id);
+		const todo = await Todo.findOne({ _id: req.params.id, user: req.user.id });
 
 		if (!todo) {
 			return res.status(400).json({ msg: 'Todo not found' });
@@ -91,11 +87,39 @@ router.delete('/:id', async (req, res) => {
 		res.json({ msg: 'Todo removed' });
 	} catch (err) {
 		console.error(err.message);
+		res.status(500).send('Server Error');
+	}
+});
 
-		if (err.kind === 'ObjectId') {
+// @route   PUT api/todos/:id
+// @desc    Update a todo
+// @access  Private
+router.put('/:id', [
+	auth,
+	[
+		check('title', 'Title is required').not().isEmpty(),
+		check('description', 'Description is required').not().isEmpty(),
+	]
+], async (req, res) => {
+	try {
+		const todo = await Todo.findOne({ _id: req.params.id, user: req.user.id });
+
+		if (!todo) {
 			return res.status(400).json({ msg: 'Todo not found' });
 		}
 
+		const { title, description, status, important } = req.body;
+
+		todo.title = title ? title : todo.title;
+		todo.description = description ? description : todo.description;
+		todo.status = status ? status : todo.status;
+		todo.important = important ? important : todo.important;
+
+		await todo.save();
+
+		res.json({ msg: 'Todo updated' });
+	} catch (err) {
+		console.error(err.message);
 		res.status(500).send('Server Error');
 	}
 });
